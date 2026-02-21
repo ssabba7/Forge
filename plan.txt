@@ -1,0 +1,185 @@
+Plan to implement                                                                                                                                                               │
+│                                                                                                                                                                                 │
+│ Plan: Hinge Motor Control Sketch                                                                                                                                                │
+│                                                                                                                                                                                 │
+│ Context                                                                                                                                                                         │
+│                                                                                                                                                                                 │
+│ Adding a new sketch (Hinge_sketch/Hinge_sketch.ino) for a single DC motor hinge/shooter. The Controller library's throttle slider acts as the "power bar" and a "Shoot" button  │
+│ triggers the move. ENA can be used with a 6V supply — the L298N accepts 5V–46V on VMotor; the ~2V H-bridge drop means the motor sees ~4V, and PWM on ENA works normally.        │
+│                                                                                                                                                                                 │
+│ The Controller library needs one small addition to expose the throttle slider value so the sketch can read it when the Shoot button fires.                                      │
+│                                                                                                                                                                                 │
+│ ---                                                                                                                                                                             │
+│ Files to Modify / Create                                                                                                                                                        │
+│                                                                                                                                                                                 │
+│ ┌───────────────────────────────┬──────────────────────────────────────────────────────────┐                                                                                    │
+│ │             File              │                          Action                          │                                                                                    │
+│ ├───────────────────────────────┼──────────────────────────────────────────────────────────┤                                                                                    │
+│ │ Controller/src/Controller.h   │ Add _lastThrottle member + getThrottle() declaration     │                                                                                    │
+│ ├───────────────────────────────┼──────────────────────────────────────────────────────────┤                                                                                    │
+│ │ Controller/src/Controller.cpp │ Store throttle in handleDrive(), implement getThrottle() │                                                                                    │
+│ ├───────────────────────────────┼──────────────────────────────────────────────────────────┤                                                                                    │
+│ │ Hinge_sketch/Hinge_sketch.ino │ Create — new sketch                                      │                                                                                    │
+│ └───────────────────────────────┴──────────────────────────────────────────────────────────┘                                                                                    │
+│                                                                                                                                                                                 │
+│ ---                                                                                                                                                                             │
+│ Wiring Table                                                                                                                                                                    │
+│                                                                                                                                                                                 │
+│ ┌────────────────┬───────────────────────────────────┬──────────────────────────────────────────────────────┐                                                                   │
+│ │ L298N Terminal │        Arduino R4 WiFi Pin        │                        Notes                         │                                                                   │
+│ ├────────────────┼───────────────────────────────────┼──────────────────────────────────────────────────────┤                                                                   │
+│ │ ENA            │ Pin 9                             │ PWM speed control — connect to Arduino, do NOT short │                                                                   │
+│ ├────────────────┼───────────────────────────────────┼──────────────────────────────────────────────────────┤                                                                   │
+│ │ IN1            │ Pin 7                             │ Direction A                                          │                                                                   │
+│ ├────────────────┼───────────────────────────────────┼──────────────────────────────────────────────────────┤                                                                   │
+│ │ IN2            │ Pin 6                             │ Direction B                                          │                                                                   │
+│ ├────────────────┼───────────────────────────────────┼──────────────────────────────────────────────────────┤                                                                   │
+│ │ OUT1           │ Motor +                           │ DC motor lead                                        │                                                                   │
+│ ├────────────────┼───────────────────────────────────┼──────────────────────────────────────────────────────┤                                                                   │
+│ │ OUT2           │ Motor −                           │ DC motor lead                                        │                                                                   │
+│ ├────────────────┼───────────────────────────────────┼──────────────────────────────────────────────────────┤                                                                   │
+│ │ 12V / VMotor   │ External 6V supply +              │ Motor power (L298N drops ~2V; motor sees ~4V)        │                                                                   │
+│ ├────────────────┼───────────────────────────────────┼──────────────────────────────────────────────────────┤                                                                   │
+│ │ GND            │ External supply GND + Arduino GND │ Common ground is mandatory                           │                                                                   │
+│ └────────────────┴───────────────────────────────────┴──────────────────────────────────────────────────────┘                                                                   │
+│                                                                                                                                                                                 │
+│ Direction Logic (Channel A):                                                                                                                                                    │
+│ - IN1=HIGH, IN2=LOW,  ENA=PWM → Clockwise (CW)                                                                                                                                  │
+│ - IN1=LOW,  IN2=HIGH, ENA=PWM → Counter-Clockwise (CCW)                                                                                                                         │
+│ - IN1=HIGH, IN2=HIGH, ENA=0   → Brake (fast stop)                                                                                                                               │
+│                                                                                                                                                                                 │
+│ Speed mapping: abs(speed) 0..100 → PWM 0..255 via map(), with a minimum PWM floor to overcome motor stiction.                                                                   │
+│                                                                                                                                                                                 │
+│ ---                                                                                                                                                                             │
+│ Change 1: Controller Library — Expose Throttle                                                                                                                                  │
+│                                                                                                                                                                                 │
+│ Controller.h                                                                                                                                                                    │
+│                                                                                                                                                                                 │
+│ In the private: section, add:                                                                                                                                                   │
+│ uint8_t _lastThrottle = 100;  // last throttle received from /drive                                                                                                             │
+│ In the public: section, add:                                                                                                                                                    │
+│ uint8_t getThrottle() const;  // returns 0–100                                                                                                                                  │
+│                                                                                                                                                                                 │
+│ Controller.cpp                                                                                                                                                                  │
+│                                                                                                                                                                                 │
+│ In handleDrive(), after the t query param is parsed (it's already stored as a local int t), add:                                                                                │
+│ _lastThrottle = (uint8_t)constrain(t, 0, 100);                                                                                                                                  │
+│ Add the implementation (anywhere, e.g. near speedLeft()):                                                                                                                       │
+│ uint8_t Controller::getThrottle() const { return _lastThrottle; }                                                                                                               │
+│                                                                                                                                                                                 │
+│ This is a non-breaking, additive change. The _lastThrottle starts at 100 so the first Shoot press before any /drive request uses full power.                                    │
+│                                                                                                                                                                                 │
+│ ---                                                                                                                                                                             │
+│ Change 2: Hinge_sketch/Hinge_sketch.ino                                                                                                                                         │
+│                                                                                                                                                                                 │
+│ File structure                                                                                                                                                                  │
+│                                                                                                                                                                                 │
+│ 1. Block comment header (wiring, direction logic, design notes)                                                                                                                 │
+│ 2. #include "Controller.h"                                                                                                                                                      │
+│ 3. Hinge class definition (inline)                                                                                                                                              │
+│ 4. Global instances                                                                                                                                                             │
+│ 5. Button callbacks as free functions                                                                                                                                           │
+│ 6. setup() and loop()                                                                                                                                                           │
+│                                                                                                                                                                                 │
+│ ---                                                                                                                                                                             │
+│ Hinge Class                                                                                                                                                                     │
+│                                                                                                                                                                                 │
+│ Members                                                                                                                                                                         │
+│                                                                                                                                                                                 │
+│ uint8_t  _ena, _in1, _in2;                                                                                                                                                      │
+│ uint8_t  _minPWM      = 110;   // stiction floor — tune to motor                                                                                                                │
+│ bool     _timedActive = false;                                                                                                                                                  │
+│ uint32_t _timedStartMs = 0;                                                                                                                                                     │
+│ uint32_t _timedDurMs   = 0;                                                                                                                                                     │
+│                                                                                                                                                                                 │
+│ Public API                                                                                                                                                                      │
+│                                                                                                                                                                                 │
+│ Hinge(uint8_t ena, uint8_t in1, uint8_t in2);                                                                                                                                   │
+│ void begin();                               // pinMode + brake at boot                                                                                                          │
+│ void setMinPWM(uint8_t pwm);              // override stiction floor                                                                                                            │
+│ void rotateCW(uint8_t speed = 100);       // CW at 1–100                                                                                                                        │
+│ void rotateCCW(uint8_t speed = 100);      // CCW at 1–100                                                                                                                       │
+│ void stop();                               // Brake (IN1=HIGH, IN2=HIGH, ENA=0)                                                                                                 │
+│ void rotateFor(bool cw, uint8_t speed, uint32_t ms);  // Non-blocking timed rotation                                                                                            │
+│ void update();                             // Call in loop() — handles timed stop                                                                                               │
+│                                                                                                                                                                                 │
+│ Private method                                                                                                                                                                  │
+│                                                                                                                                                                                 │
+│ void applyMotor(bool forward, uint8_t speed);                                                                                                                                   │
+│ // speed 0..100 → PWM 0..255 via map(), applies _minPWM floor                                                                                                                   │
+│ // forward=true: IN1=HIGH, IN2=LOW; false: IN1=LOW, IN2=HIGH                                                                                                                    │
+│ // Mirrors Controller::setMotorOne() exactly for consistent behaviour                                                                                                           │
+│                                                                                                                                                                                 │
+│ Key implementation notes                                                                                                                                                        │
+│                                                                                                                                                                                 │
+│ begin(): pinMode all three pins OUTPUT, then stop() immediately — safe state before WiFi starts.                                                                                │
+│                                                                                                                                                                                 │
+│ stop(): IN1=HIGH, IN2=HIGH, ENA=0 (brake, not coast). Clears _timedActive.                                                                                                      │
+│                                                                                                                                                                                 │
+│ rotateCW(speed) / rotateCCW(speed): cancel _timedActive, then call applyMotor().                                                                                                │
+│                                                                                                                                                                                 │
+│ rotateFor(cw, speed, ms): records _timedStartMs = millis(), sets _timedActive = true, calls rotateCW/CCW(speed). Uses start+duration pattern for millis() rollover safety.      │
+│                                                                                                                                                                                 │
+│ update(): if (_timedActive && (millis() - _timedStartMs) >= _timedDurMs) stop();                                                                                                │
+│                                                                                                                                                                                 │
+│ ---                                                                                                                                                                             │
+│ Global Setup                                                                                                                                                                    │
+│                                                                                                                                                                                 │
+│ Controller controller("HingeAP", "12345678");                                                                                                                                   │
+│ Hinge hinge(9, 7, 6);   // ENA=9, IN1=7, IN2=6                                                                                                                                  │
+│                                                                                                                                                                                 │
+│ Do NOT call controller.configureL298N() — the Hinge class owns the pins.                                                                                                        │
+│                                                                                                                                                                                 │
+│ ---                                                                                                                                                                             │
+│ Shoot Button Logic                                                                                                                                                              │
+│                                                                                                                                                                                 │
+│ void doShoot() {                                                                                                                                                                │
+│     uint8_t power = controller.getThrottle();  // 0–100 from throttle slider                                                                                                    │
+│     hinge.rotateFor(true, power, 800);         // CW at 'power' speed for 800ms                                                                                                 │
+│     // Tune 800ms to match desired throw distance                                                                                                                               │
+│ }                                                                                                                                                                               │
+│                                                                                                                                                                                 │
+│ The throttle slider is the "power bar": drag it before pressing Shoot. Higher throttle → faster motor → more power.                                                             │
+│                                                                                                                                                                                 │
+│ ---                                                                                                                                                                             │
+│ setup() Sequence                                                                                                                                                                │
+│                                                                                                                                                                                 │
+│ Serial.begin(115200);                                                                                                                                                           │
+│ hinge.begin();                                                                                                                                                                  │
+│ hinge.setMinPWM(110);                                                                                                                                                           │
+│ controller.setFailsafeTimeoutMs(1000);      // hinge stops 1s after WiFi loss                                                                                                   │
+│ controller.enableStatusLED(LED_BUILTIN);                                                                                                                                        │
+│ // No registerDriveCallback — joystick is unused in this sketch                                                                                                                 │
+│ controller.registerButton("Shoot", doShoot);                                                                                                                                    │
+│ controller.registerButton("Stop",  []{ hinge.stop(); });                                                                                                                        │
+│ controller.beginAP(true);                                                                                                                                                       │
+│                                                                                                                                                                                 │
+│ The joystick is present in the web UI but ignored — user only interacts with the throttle slider and buttons. The throttle slider's value is captured by getThrottle() whenever │
+│  the user taps Shoot.                                                                                                                                                           │
+│                                                                                                                                                                                 │
+│ ---                                                                                                                                                                             │
+│ loop()                                                                                                                                                                          │
+│                                                                                                                                                                                 │
+│ void loop() {                                                                                                                                                                   │
+│     controller.update();   // WiFi, failsafe, triggers callbacks                                                                                                                │
+│     hinge.update();        // handles rotateFor() / Shoot timeout                                                                                                               │
+│ }                                                                                                                                                                               │
+│                                                                                                                                                                                 │
+│ ---                                                                                                                                                                             │
+│ Reference Files                                                                                                                                                                 │
+│                                                                                                                                                                                 │
+│ - Base_scketch.a/Base_scketch.a.ino — reference for Controller initialization pattern and proven pin assignments                                                                │
+│ - Controller/src/Controller.cpp — handleDrive() (where to store _lastThrottle), setMotorOne() (PWM mapping + BRAKE convention to replicate in Hinge class)                      │
+│ - Controller/src/Controller.h — where to add _lastThrottle member and getThrottle() declaration                                                                                 │
+│                                                                                                                                                                                 │
+│ ---                                                                                                                                                                             │
+│ Verification                                                                                                                                                                    │
+│                                                                                                                                                                                 │
+│ 1. Unzip and modify Controller.zip → re-install library in Arduino IDE                                                                                                          │
+│ 2. Upload Hinge_sketch.ino to Arduino R4 WiFi                                                                                                                                   │
+│ 3. Connect to HingeAP (password 12345678), open http://10.0.0.2                                                                                                                 │
+│ 4. Set throttle slider to 50% → tap "Shoot" → hinge spins CW at ~half speed for 800ms then brakes                                                                               │
+│ 5. Set throttle slider to 100% → tap "Shoot" → hinge spins CW at full speed for 800ms                                                                                           │
+│ 6. Tap "Stop" at any time → hinge brakes immediately                                                                                                                            │
+│ 7. Disconnect WiFi → hinge brakes after 1 second (failsafe)                                                                                                                     │
+│ 8. Monitor Serial at 115200 for debug output               
