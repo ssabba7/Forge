@@ -26,7 +26,7 @@
 // Motor direction — set to -1 to flip a motor that runs the wrong way
 #define LEFT_FLIP      -1    // 1 = normal,   -1 = reversed
 #define RIGHT_FLIP     -1    // 1 = normal,   -1 = reversed
-#define CATAPULT_FLIP  -1    // 1 = normal,   -1 = reversed
+#define CATAPULT_FLIP   -1    // 1 = normal,   -1 = reversed
 
 // Power trim — left motor is physically stronger, so boost the right to match.
 // 100 = no trim.  Increase until W drives straight (try 110, 120, 130...).
@@ -413,8 +413,8 @@ void loop() {
     sendOK(client, F("charging"));
   }
   else if (line.indexOf("/shoot") >= 0) {
-    // ── Snap burst: full speed for CATAPULT_SHOOT_MS then stop ────────────
-    Serial.print(F("[SHOOT] snap ")); Serial.print(CATAPULT_SHOOT_MS); Serial.println(F("ms"));
+    // ── Spin forward at full speed for CATAPULT_SHOOT_MS then stop ──────────
+    Serial.print(F("[SHOOT] ")); Serial.print(CATAPULT_SHOOT_MS); Serial.println(F("ms forward"));
     sendOK(client, F("shooting"));
     client.flush();
     client.stop();
